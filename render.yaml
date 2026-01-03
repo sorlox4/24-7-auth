@@ -6,8 +6,6 @@ services:
     startCommand: python bot.py
     envVars:
       - key: TELEGRAM_BOT_TOKEN
-        sync: false
       - key: PORT
         value: 10000
     plan: free
-    autoDeploy: true
