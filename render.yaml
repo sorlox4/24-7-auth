@@ -8,6 +8,6 @@ services:
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: PORT
-        value: 10000
+        value: 8103948431:AAEZgtxTZPA1tvuo8Lc6iA5-UZ7RFiqSzhs
     plan: free
     autoDeploy: true
